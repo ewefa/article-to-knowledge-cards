@@ -13,7 +13,7 @@
 
     <groupId>com.campus</groupId>
     <artifactId>campus-trade</artifactId>
-    <version>1.0.0</version>
+    <version>0.1.0</version>
     <name>campus-trade</name>
     <description>校园二手交易平台</description>
 

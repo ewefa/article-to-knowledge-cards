@@ -138,7 +138,7 @@ campus:
 
 ```bash
 mvn -DskipTests package
-java -jar target/campus-trade-1.0.0.jar
+java -jar target/campus-trade-0.1.0.jar
 # 开发调试也可以直接：mvn spring-boot:run
 ```
 
