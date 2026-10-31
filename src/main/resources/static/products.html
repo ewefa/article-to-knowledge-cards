@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全部商品 · 校园二手集市</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<main class="container" style="padding-top:22px">
+  <div class="panel" style="padding:18px 20px">
+    <form id="filter-form">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <input class="input" style="flex:2;min-width:220px" id="keyword" placeholder="搜索商品名称或描述">
+        <select class="input" style="flex:1;min-width:150px" id="categoryId"><option value="">全部分类</option></select>
+        <select class="input" style="flex:1;min-width:130px" id="sort">
+          <option value="new">最新发布</option>
+          <option value="priceAsc">价格从低到高</option>
+          <option value="priceDesc">价格从高到低</option>
+          <option value="hot">浏览量最多</option>
+        </select>
+        <button class="btn" type="submit">筛选</button>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;align-items:center">
+        <input class="input" style="width:120px" id="minPrice" type="number" min="0" step="0.01" placeholder="最低价">
+        <span style="color:var(--text-3)">—</span>
+        <input class="input" style="width:120px" id="maxPrice" type="number" min="0" step="0.01" placeholder="最高价">
+        <select class="input" style="width:150px" id="negotiable">
+          <option value="">不限议价</option>
+          <option value="1">仅可议价</option>
+          <option value="0">仅一口价</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" type="button" id="btn-reset">重置条件</button>
+        <span style="margin-left:auto;color:var(--text-3);font-size:13px" id="result-count"></span>
+      </div>
+    </form>
+  </div>
+
+  <section class="section">
+    <div class="product-grid" id="list"></div>
+    <div class="pagination" id="pagination"></div>
+  </section>
+
+  <div class="footer">校园二手交易平台 · 线下当面交易，注意甄别人与物</div>
+</main>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+const form = document.getElementById('filter-form');
+const listHost = document.getElementById('list');
+const paginationHost = document.getElementById('pagination');
+let currentPage = 1;
+
+function fillForm() {
+  document.getElementById('keyword').value = UI.query('keyword') || '';
+  document.getElementById('sort').value = UI.query('sort') || 'new';
+  document.getElementById('minPrice').value = UI.query('minPrice') || '';
+  document.getElementById('maxPrice').value = UI.query('maxPrice') || '';
+  document.getElementById('negotiable').value = UI.query('negotiable') || '';
+  const categoryId = UI.query('categoryId');
+  if (categoryId) {
+    // 分类选项加载完成后再选中
+    const timer = setInterval(function () {
+      const select = document.getElementById('categoryId');
+      if (select.options.length > 1) {
+        select.value = categoryId;
+        clearInterval(timer);
+      }
+    }, 100);
+    setTimeout(function () { clearInterval(timer); }, 3000);
+  }
+}
+
+async function loadCategories() {
+  try {
+    const categories = await API.get('/api/home/categories');
+    const select = document.getElementById('categoryId');
+    select.innerHTML = '<option value="">全部分类</option>' + categories.map(function (c) {
+      return '<option value="' + c.id + '">' + UI.escapeHtml(c.name) + '</option>';
+    }).join('');
+  } catch (e) { /* 忽略 */ }
+}
+
+async function loadList(page) {
+  currentPage = page || 1;
+  const params = {
+    keyword: document.getElementById('keyword').value.trim(),
+    categoryId: document.getElementById('categoryId').value,
+    minPrice: document.getElementById('minPrice').value,
+    maxPrice: document.getElementById('maxPrice').value,
+    negotiable: document.getElementById('negotiable').value,
+    sort: document.getElementById('sort').value,
+    page: currentPage,
+    size: 12
+  };
+  try {
+    const data = await API.get('/api/products', params);
+    listHost.innerHTML = data.records.length ? data.records.map(UI.productCard).join('') : UI.empty('没有找到符合条件的商品');
+    document.getElementById('result-count').textContent = '共 ' + data.total + ' 件商品';
+    UI.renderPagination(paginationHost, data.page, data.pages, function (target) {
+      loadList(target);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    const qs = new URLSearchParams();
+    Object.keys(params).forEach(function (key) {
+      if (params[key] !== '' && params[key] !== undefined && key !== 'page' && key !== 'size') qs.append(key, params[key]);
+    });
+    history.replaceState(null, '', 'products.html?' + qs.toString());
+  } catch (e) {
+    UI.toast(e.message, true);
+  }
+}
+
+form.addEventListener('submit', function (event) {
+  event.preventDefault();
+  loadList(1);
+});
+
+document.getElementById('btn-reset').addEventListener('click', function () {
+  form.reset();
+  document.getElementById('categoryId').value = '';
+  document.getElementById('sort').value = 'new';
+  history.replaceState(null, '', 'products.html');
+  loadList(1);
+});
+
+fillForm();
+loadCategories().then(function () { loadList(1); });
+</script>
+</body>
+</html>

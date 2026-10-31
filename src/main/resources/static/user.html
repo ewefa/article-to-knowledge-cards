@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>个人中心 · 校园二手集市</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<main class="container" style="padding-top:22px">
+  <div class="admin-layout">
+    <aside class="admin-menu" id="menu">
+      <button data-sec="profile" class="on">我的资料</button>
+      <button data-sec="products">我的商品</button>
+      <button data-sec="favorites">我的收藏</button>
+      <button data-sec="cart">意向清单</button>
+      <button data-sec="history">浏览记录</button>
+      <button data-sec="messages">消息中心</button>
+      <button data-sec="security">账号安全</button>
+    </aside>
+    <section id="content"></section>
+  </div>
+</main>
+
+<div id="modal-root"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+if (!UI.requireLogin()) {
+  throw new Error('need login');
+}
+
+let me = null;
+let currentSection = (location.hash || '#profile').slice(1);
+
+function sectionTitle(text, desc) {
+  return '<div class="panel" style="margin-bottom:16px"><div class="section-title">' + text + '</div>' +
+    (desc ? '<div class="section-sub" style="margin-top:6px">' + desc + '</div>' : '') + '</div>';
+}
+
+async function renderProfile() {
+  me = await API.get('/api/user/me');
+  const user = API.getUser() || {};
+  document.getElementById('content').innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;gap:18px;align-items:center;margin-bottom:22px">' +
+        '<img class="avatar" style="width:76px;height:76px" id="avatar-preview" src="' + UI.escapeHtml(me.avatar || '/images/avatar/default.png') + '">' +
+        '<div>' +
+          '<div style="font-size:19px;font-weight:700">' + UI.escapeHtml(me.nickname || me.name) + '</div>' +
+          '<div style="color:var(--text-3);font-size:13px;margin-top:2px">' +
+            UI.escapeHtml(me.account) + ' · ' + UI.escapeHtml(me.department || '未填写院系') +
+            (me.identityStatus === 1 ? ' · <span class="chip chip-green">身份已认证</span>' :
+             me.identityStatus === 0 ? ' · <span class="chip chip-orange">身份待审核</span>' :
+             ' · <span class="chip chip-red">身份未通过</span>') +
+          '</div>' +
+          '<div style="color:var(--text-3);font-size:12px;margin-top:4px">在售 ' + (me.onSaleCount || 0) +
+            ' 件 · 已售出 ' + (me.soldCount || 0) + ' 件</div>' +
+        '</div>' +
+        '<button class="btn btn-ghost btn-sm" style="margin-left:auto" id="btn-avatar">更换头像</button>' +
+        '<input type="file" id="avatar-input" accept="image/*" style="display:none">' +
+      '</div>' +
+      '<form id="form-profile">' +
+        '<div class="form-row">' +
+          '<div class="field"><label>昵称</label><input class="input" id="nickname" maxlength="20" value="' + UI.escapeHtml(me.nickname || '') + '"></div>' +
+          '<div class="field"><label>院系</label><input class="input" id="department" maxlength="30" value="' + UI.escapeHtml(me.department || '') + '"></div>' +
+        '</div>' +
+        '<div class="form-row">' +
+          '<div class="field"><label>微信号（选填）</label><input class="input" id="wechat" maxlength="30" value="' + UI.escapeHtml(me.wechat || '') + '"></div>' +
+          '<div class="field"><label>联系方式公开</label><select class="input" id="contactPublic">' +
+            '<option value="1"' + (me.contactPublic === 1 ? ' selected' : '') + '>公开（买家可见微信/手机号）</option>' +
+            '<option value="0"' + (me.contactPublic === 0 ? ' selected' : '') + '>仅通过留言沟通</option>' +
+          '</select></div>' +
+        '</div>' +
+        '<div class="field"><label>个人简介</label><textarea class="input" id="intro" maxlength="200" placeholder="介绍一下自己，如常出闲置的品类">' + UI.escapeHtml(me.intro || '') + '</textarea></div>' +
+        '<div style="display:flex;justify-content:flex-end"><button class="btn" type="submit">保存资料</button></div>' +
+      '</form>' +
+    '</div>';
+
+  document.getElementById('btn-avatar').addEventListener('click', function () {
+    document.getElementById('avatar-input').click();
+  });
+  document.getElementById('avatar-input').addEventListener('change', async function (event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    try {
+      const data = await API.upload(file);
+      await API.put('/api/user/profile', {
+        nickname: document.getElementById('nickname').value.trim(),
+        department: document.getElementById('department').value.trim(),
+        intro: document.getElementById('intro').value.trim(),
+        avatar: data.url,
+        wechat: document.getElementById('wechat').value.trim(),
+        contactPublic: Number(document.getElementById('contactPublic').value)
+      });
+      document.getElementById('avatar-preview').src = data.url;
+      const cached = API.getUser() || {};
+      cached.avatar = data.url;
+      localStorage.setItem('campus_user', JSON.stringify(cached));
+      UI.toast('头像已更新');
+    } catch (e) { UI.toast(e.message, true); }
+  });
+
+  document.getElementById('form-profile').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    try {
+      await API.put('/api/user/profile', {
+        nickname: document.getElementById('nickname').value.trim(),
+        department: document.getElementById('department').value.trim(),
+        intro: document.getElementById('intro').value.trim(),
+        wechat: document.getElementById('wechat').value.trim(),
+        contactPublic: Number(document.getElementById('contactPublic').value)
+      });
+      const cached = API.getUser() || {};
+      cached.nickname = document.getElementById('nickname').value.trim();
+      cached.avatar = document.getElementById('avatar-preview').src;
+      localStorage.setItem('campus_user', JSON.stringify(cached));
+      UI.toast('资料已保存');
+      UI.renderHeader();
+    } catch (e) { UI.toast(e.message, true); }
+  });
+}
+
+const PRODUCT_TABS = [
+  { status: '', text: '全部' },
+  { status: 1, text: '在售' },
+  { status: 0, text: '待审核' },
+  { status: 2, text: '已下架' },
+  { status: 3, text: '已售出' },
+  { status: 4, text: '审核驳回' },
+  { status: 5, text: '违规下架' }
+];
+let mineStatus = '';
+
+async function renderProducts() {
+  document.getElementById('content').innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px" id="mine-tabs">' +
+        PRODUCT_TABS.map(function (tab) {
+          return '<button class="btn ' + (String(tab.status) === String(mineStatus) ? '' : 'btn-ghost') + ' btn-sm" data-status="' + tab.status + '">' + tab.text + '</button>';
+        }).join('') +
+        '<a class="btn btn-soft btn-sm" style="margin-left:auto" href="publish.html">+ 发布商品</a>' +
+      '</div>' +
+      '<div id="mine-list"></div>' +
+      '<div class="pagination" id="mine-pagination"></div>' +
+    '</div>';
+
+  document.querySelectorAll('#mine-tabs [data-status]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      mineStatus = btn.dataset.status;
+      renderProducts();
+    });
+  });
+  loadMine(1);
+}
+
+async function loadMine(page) {
+  const host = document.getElementById('mine-list');
+  host.innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    const data = await API.get('/api/products/mine', { status: mineStatus, page: page || 1, size: 10 });
+    if (!data.records.length) {
+      host.innerHTML = UI.empty('这个分类下还没有商品');
+    } else {
+      host.innerHTML = data.records.map(function (p) {
+        const cover = (p.images && p.images[0]) || p.cover || '/images/products/p1.jpg';
+        return '<div class="list-row">' +
+          '<img class="thumb" src="' + UI.escapeHtml(cover) + '">' +
+          '<div class="grow">' +
+            '<a href="product.html?id=' + p.id + '" style="font-weight:600;font-size:15px">' + UI.escapeHtml(p.title) + '</a>' +
+            '<div style="color:var(--text-3);font-size:12px;margin-top:4px">' +
+              UI.statusChip(p.status) + ' <span style="margin-left:8px">¥' + UI.money(p.price) + '</span>' +
+              '<span style="margin-left:8px">浏览 ' + (p.viewCount || 0) + '</span>' +
+              '<span style="margin-left:8px">收藏 ' + (p.favoriteCount || 0) + '</span>' +
+              '<span style="margin-left:8px">' + UI.escapeHtml(p.publishTime || p.createTime || '') + '</span>' +
+            '</div>' +
+            (p.rejectReason ? '<div style="color:var(--danger);font-size:12px;margin-top:4px">驳回理由：' + UI.escapeHtml(p.rejectReason) + '</div>' : '') +
+          '</div>' +
+          '<div class="row-actions">' +
+            '<a class="btn btn-ghost btn-sm" href="publish.html?id=' + p.id + '">编辑</a>' +
+            (p.status === 1 ? '<button class="btn btn-ghost btn-sm" data-act="offline" data-id="' + p.id + '">下架</button>' +
+                              '<button class="btn btn-soft btn-sm" data-act="sold" data-id="' + p.id + '">标记已售出</button>' : '') +
+            ((p.status === 2 || p.status === 4 || p.status === 5) ? '<button class="btn btn-soft btn-sm" data-act="online" data-id="' + p.id + '">重新上架</button>' : '') +
+            '<button class="btn btn-danger btn-sm" data-act="delete" data-id="' + p.id + '">删除</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+      host.querySelectorAll('[data-act]').forEach(function (btn) {
+        btn.addEventListener('click', function () { handleProductAction(btn.dataset.act, Number(btn.dataset.id)); });
+      });
+    }
+    UI.renderPagination(document.getElementById('mine-pagination'), data.page, data.pages, function (target) { loadMine(target); });
+  } catch (e) {
+    host.innerHTML = UI.empty(e.message);
+  }
+}
+
+async function handleProductAction(action, id) {
+  try {
+    if (action === 'delete') {
+      if (!confirm('确定要删除这件商品吗？')) return;
+      await API.del('/api/products/' + id);
+      UI.toast('已删除');
+    } else {
+      const status = action === 'online' ? 1 : action === 'offline' ? 2 : 3;
+      if (action === 'sold' && !confirm('确认这件商品已经卖出了吗？')) return;
+      await API.put('/api/products/' + id + '/status', { status: status });
+      UI.toast('操作成功');
+    }
+    loadMine(1);
+  } catch (e) {
+    UI.toast(e.message, true);
+  }
+}
+
+async function renderFavorites() {
+  document.getElementById('content').innerHTML = '<div class="panel"><div class="section-title">我的收藏</div><div id="fav-list" style="margin-top:16px"></div></div>';
+  try {
+    const data = await API.get('/api/user/favorites', { page: 1, size: 30 });
+    document.getElementById('fav-list').innerHTML = data.records.length
+      ? '<div class="product-grid" style="grid-template-columns:repeat(3,1fr)">' + data.records.map(UI.productCard).join('') + '</div>'
+      : UI.empty('还没有收藏任何商品');
+  } catch (e) {
+    document.getElementById('fav-list').innerHTML = UI.empty(e.message);
+  }
+}
+
+async function renderCart() {
+  document.getElementById('content').innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<div class="section-title">意向清单</div>' +
+        '<button class="btn btn-ghost btn-sm" id="btn-clear-cart">清空清单</button>' +
+      '</div>' +
+      '<div style="color:var(--text-3);font-size:12px;margin-top:6px">清单只保存在 Redis（7 天有效），用于记下想当面交易的闲置，方便与卖家约时间；平台不提供线上支付。</div>' +
+      '<div id="cart-list" style="margin-top:16px"></div>' +
+    '</div>';
+  document.getElementById('btn-clear-cart').addEventListener('click', async function () {
+    if (!confirm('确定清空意向清单？')) return;
+    try {
+      await API.del('/api/cart');
+      UI.toast('已清空');
+      renderCart();
+    } catch (e) { UI.toast(e.message, true); }
+  });
+  try {
+    const data = await API.get('/api/cart');
+    const host = document.getElementById('cart-list');
+    if (!data.items.length) {
+      host.innerHTML = UI.empty('意向清单还是空的，去商品详情页点「加入清单」吧');
+      return;
+    }
+    host.innerHTML = data.items.map(function (p) {
+      const cover = (p.images && p.images[0]) || p.cover || '/images/products/p1.jpg';
+      return '<div class="list-row">' +
+        '<img class="thumb" src="' + UI.escapeHtml(cover) + '">' +
+        '<div class="grow">' +
+          '<a href="product.html?id=' + p.id + '" style="font-weight:600;font-size:15px">' + UI.escapeHtml(p.title) + '</a>' +
+          '<div style="color:var(--text-3);font-size:12px;margin-top:4px">' +
+            UI.statusChip(p.status) + '<span style="margin-left:8px">¥' + UI.money(p.price) + '</span>' +
+            '<span style="margin-left:8px">' + UI.escapeHtml(p.tradePlace || '') + '</span>' +
+            '<span style="margin-left:8px">卖家 ' + UI.escapeHtml(p.sellerName || '') + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="row-actions">' +
+          '<a class="btn btn-ghost btn-sm" href="product.html?id=' + p.id + '">查看</a>' +
+          '<button class="btn btn-danger btn-sm" data-cart-del="' + p.id + '">移出</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    host.querySelectorAll('[data-cart-del]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        try {
+          await API.del('/api/cart/' + btn.dataset.cartDel);
+          UI.toast('已移出');
+          renderCart();
+        } catch (e) { UI.toast(e.message, true); }
+      });
+    });
+  } catch (e) {
+    document.getElementById('cart-list').innerHTML = UI.empty(e.message);
+  }
+}
+
+async function renderHistory() {  document.getElementById('content').innerHTML =
+    '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center">' +
+      '<div class="section-title">浏览记录</div>' +
+      '<button class="btn btn-ghost btn-sm" id="btn-clear-history">清空记录</button>' +
+    '</div><div id="history-list" style="margin-top:16px"></div></div>';
+  document.getElementById('btn-clear-history').addEventListener('click', async function () {
+    if (!confirm('确定清空全部浏览记录？')) return;
+    try {
+      await API.del('/api/user/history');
+      UI.toast('已清空');
+      renderHistory();
+    } catch (e) { UI.toast(e.message, true); }
+  });
+  try {
+    const data = await API.get('/api/user/history', { page: 1, size: 30 });
+    document.getElementById('history-list').innerHTML = data.records.length
+      ? '<div class="product-grid" style="grid-template-columns:repeat(3,1fr)">' + data.records.map(UI.productCard).join('') + '</div>'
+      : UI.empty('还没有浏览记录');
+  } catch (e) {
+    document.getElementById('history-list').innerHTML = UI.empty(e.message);
+  }
+}
+
+const TYPE_TEXT = { COMMENT: '商品留言', REPLY: '留言回复', AUDIT: '审核结果', REPORT: '举报处理', SYSTEM: '系统通知' };
+
+async function renderMessages() {
+  document.getElementById('content').innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+        '<div class="section-title">消息中心</div>' +
+        '<button class="btn btn-ghost btn-sm" id="btn-read-all">全部标为已读</button>' +
+      '</div>' +
+      '<div id="msg-list"></div>' +
+      '<div class="pagination" id="msg-pagination"></div>' +
+    '</div>';
+  document.getElementById('btn-read-all').addEventListener('click', async function () {
+    try {
+      await API.put('/api/messages/read-all');
+      UI.toast('已全部标记为已读');
+      loadMessages(1);
+      UI.refreshUnread();
+    } catch (e) { UI.toast(e.message, true); }
+  });
+  loadMessages(1);
+}
+
+async function loadMessages(page) {
+  const host = document.getElementById('msg-list');
+  try {
+    const data = await API.get('/api/messages', { page: page || 1, size: 10 });
+    if (!data.records.length) {
+      host.innerHTML = UI.empty('暂时没有新消息');
+    } else {
+      host.innerHTML = data.records.map(function (m) {
+        return '<div class="msg-item ' + (m.isRead ? '' : 'unread') + '">' +
+          (m.isRead ? '<span style="width:8px"></span>' : '<span class="msg-dot"></span>') +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="display:flex;gap:8px;align-items:center">' +
+              '<span class="chip chip-green">' + (TYPE_TEXT[m.type] || '通知') + '</span>' +
+              '<b style="font-size:14px">' + UI.escapeHtml(m.title) + '</b>' +
+              '<span class="comment-time" style="margin-left:auto">' + UI.timeText(m.createTime) + '</span>' +
+            '</div>' +
+            '<div style="color:var(--text-2);margin-top:5px;font-size:13px">' + UI.escapeHtml(m.content) + '</div>' +
+            '<div style="margin-top:8px;display:flex;gap:8px">' +
+              (m.relatedId ? '<a class="btn btn-ghost btn-sm" href="product.html?id=' + m.relatedId + '">查看商品</a>' : '') +
+              (!m.isRead ? '<button class="btn btn-ghost btn-sm" data-read="' + m.id + '">标为已读</button>' : '') +
+              '<button class="btn btn-ghost btn-sm" data-delmsg="' + m.id + '">删除</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+      host.querySelectorAll('[data-read]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          try {
+            await API.put('/api/messages/' + btn.dataset.read + '/read');
+            loadMessages(page);
+            UI.refreshUnread();
+          } catch (e) { UI.toast(e.message, true); }
+        });
+      });
+      host.querySelectorAll('[data-delmsg]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          try {
+            await API.del('/api/messages/' + btn.dataset.delmsg);
+            loadMessages(page);
+          } catch (e) { UI.toast(e.message, true); }
+        });
+      });
+    }
+    UI.renderPagination(document.getElementById('msg-pagination'), data.page, data.pages, loadMessages);
+  } catch (e) {
+    host.innerHTML = UI.empty(e.message);
+  }
+}
+
+function renderSecurity() {
+  document.getElementById('content').innerHTML =
+    '<div class="panel">' +
+      '<div class="section-title" style="margin-bottom:16px">修改密码</div>' +
+      '<form id="form-password" style="max-width:420px">' +
+        '<div class="field"><label>当前密码</label><input class="input" type="password" id="old-password"></div>' +
+        '<div class="field"><label>新密码</label><input class="input" type="password" id="new-password" placeholder="6-20 位"></div>' +
+        '<div class="field"><label>确认新密码</label><input class="input" type="password" id="new-password2"></div>' +
+        '<button class="btn" type="submit">确认修改</button>' +
+        '<div class="hint">修改成功后需要重新登录</div>' +
+      '</form>' +
+    '</div>';
+  document.getElementById('form-password').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    const oldPassword = document.getElementById('old-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const newPassword2 = document.getElementById('new-password2').value;
+    if (!oldPassword || !newPassword) { UI.toast('请填写完整', true); return; }
+    if (newPassword !== newPassword2) { UI.toast('两次输入的新密码不一致', true); return; }
+    try {
+      await API.put('/api/user/password', { oldPassword: oldPassword, newPassword: newPassword });
+      UI.toast('密码已修改，请重新登录');
+      API.clearAuth();
+      setTimeout(function () { location.href = 'login.html'; }, 800);
+    } catch (e) { UI.toast(e.message, true); }
+  });
+}
+
+const RENDERERS = {
+  profile: renderProfile,
+  products: renderProducts,
+  favorites: renderFavorites,
+  cart: renderCart,
+  history: renderHistory,
+  messages: renderMessages,
+  security: renderSecurity
+};
+
+function switchSection(section) {
+  if (!RENDERERS[section]) section = 'profile';
+  currentSection = section;
+  document.querySelectorAll('#menu button').forEach(function (btn) {
+    btn.classList.toggle('on', btn.dataset.sec === section);
+  });
+  history.replaceState(null, '', 'user.html#' + section);
+  document.getElementById('content').innerHTML = '<div class="panel"><div class="empty">加载中…</div></div>';
+  RENDERERS[section]().catch(function (e) { UI.toast(e.message, true); });
+}
+
+document.querySelectorAll('#menu button').forEach(function (btn) {
+  btn.addEventListener('click', function () { switchSection(btn.dataset.sec); });
+});
+
+switchSection(currentSection);
+</script>
+</body>
+</html>

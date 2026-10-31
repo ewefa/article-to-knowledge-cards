@@ -1,0 +1,80 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: campus-trade
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/campus_trade?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    # 本地演示默认值；正式部署请用环境变量覆盖，不要把真实口令写进仓库
+    #   Windows:  $env:DB_USERNAME="root"; $env:DB_PASSWORD="你的口令"
+    #   Linux  :  export DB_USERNAME=root DB_PASSWORD='你的口令'
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
+    hikari:
+      minimum-idle: 4
+      maximum-pool-size: 12
+      connection-timeout: 10000
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 20MB
+  jackson:
+    time-zone: Asia/Shanghai
+    default-property-inclusion: always
+  web:
+    resources:
+      cache:
+        period: 0
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# 平台自定义配置
+campus:
+  jwt:
+    # 不配置则每次启动随机生成密钥（重启后已签发的令牌全部失效，需重新登录）
+    # 正式部署请注入固定密钥（至少 32 字节）：环境变量 CAMPUS_JWT_SECRET
+    secret: ${CAMPUS_JWT_SECRET:}
+    expire-hours: 24
+  upload:
+    dir: ./uploads
+    url-prefix: /uploads
+  product:
+    # 发布商品是否需要管理员审核（数据库 t_sys_config 中的 product.audit.enabled 优先）
+    audit-enabled: false
+    expire-days: 30
+  sms:
+    # 演示模式：不真正发短信，验证码直接返回给前端（接入真实短信服务后改为 false）
+    mock: true
+
+logging:
+  level:
+    root: info
+    com.campus.trade: info
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

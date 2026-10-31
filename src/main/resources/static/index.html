@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>校园二手集市 · 让闲置流动起来</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<main class="container">
+  <!-- 轮播 -->
+  <section class="section" style="margin-top:22px">
+    <div class="banner" id="banner">
+      <img src="/images/banner/banner1.png" alt="轮播">
+      <div class="banner-caption">
+        <h2 id="banner-title">校园闲置，物尽其用</h2>
+        <p id="banner-content">真实在校师生 · 线下当面交易 · 拒绝中间商</p>
+      </div>
+      <div class="banner-dots" id="banner-dots"></div>
+    </div>
+  </section>
+
+  <!-- 搜索 -->
+  <section class="section" style="margin-top:16px">
+    <form class="searchbar" id="search-form">
+      <input type="text" id="search-input" placeholder="搜索教材、耳机、自行车……">
+      <button class="btn" type="submit">搜索</button>
+    </form>
+    <div style="margin-top:10px;color:var(--text-3);font-size:12px" id="hot-keywords"></div>
+  </section>
+
+  <!-- 分类 -->
+  <section class="section">
+    <div class="section-head">
+      <div class="section-title">分类导航</div>
+      <a class="section-sub" href="products.html">查看全部 →</a>
+    </div>
+    <div class="category-grid" id="categories"></div>
+  </section>
+
+  <!-- 热门推荐 -->
+  <section class="section">
+    <div class="section-head">
+      <div class="section-title">热门推荐</div>
+      <span class="section-sub">Redis 缓存 · 每 10 分钟刷新</span>
+    </div>
+    <div class="product-grid" id="hot-products"></div>
+  </section>
+
+  <!-- 最新发布 -->
+  <section class="section">
+    <div class="section-head">
+      <div class="section-title">最新发布</div>
+      <a class="section-sub" href="products.html?sort=new">更多 →</a>
+    </div>
+    <div class="product-grid" id="latest-products"></div>
+  </section>
+
+  <!-- 平台公告 -->
+  <section class="section">
+    <div class="section-head"><div class="section-title">平台公告</div></div>
+    <div class="panel" id="notices" style="padding:8px 22px"></div>
+  </section>
+
+  <div class="footer">校园二手交易平台 · 仅限本校师生使用 · 线上沟通、线下当面交易</div>
+</main>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+let banners = [];
+let bannerIndex = 0;
+let bannerTimer = null;
+
+function showBanner(index) {
+  if (!banners.length) return;
+  bannerIndex = (index + banners.length) % banners.length;
+  const item = banners[bannerIndex];
+  const img = document.querySelector('#banner > img');
+  img.src = item.image || '/images/banner/banner1.png';
+  document.getElementById('banner-title').textContent = item.title || '';
+  document.getElementById('banner-content').textContent = item.content || '';
+  document.querySelectorAll('#banner-dots i').forEach(function (dot, i) {
+    dot.className = i === bannerIndex ? 'on' : '';
+  });
+}
+
+function startBanner() {
+  clearInterval(bannerTimer);
+  if (banners.length > 1) {
+    bannerTimer = setInterval(function () { showBanner(bannerIndex + 1); }, 5000);
+  }
+}
+
+async function loadHome() {
+  try {
+    const data = await API.get('/api/home/overview');
+    banners = data.banners || [];
+    if (banners.length) {
+      document.getElementById('banner-dots').innerHTML =
+        banners.map(function (_, i) { return '<i data-i="' + i + '"></i>'; }).join('');
+      document.querySelectorAll('#banner-dots i').forEach(function (dot) {
+        dot.addEventListener('click', function () { showBanner(Number(dot.dataset.i)); startBanner(); });
+      });
+      showBanner(0);
+      startBanner();
+    }
+
+    document.getElementById('categories').innerHTML = (data.categories || []).map(function (c) {
+      return '<a class="category-item" href="products.html?categoryId=' + c.id + '">' +
+        '<div class="category-icon">' + (c.icon || '📦') + '</div>' +
+        '<div class="category-name">' + UI.escapeHtml(c.name) + '</div></a>';
+    }).join('');
+
+    const hot = data.hot || [];
+    document.getElementById('hot-products').innerHTML = hot.length
+      ? hot.map(UI.productCard).join('')
+      : UI.empty('热门商品正在统计中');
+
+    const latest = data.latest || [];
+    document.getElementById('latest-products').innerHTML = latest.length
+      ? latest.map(UI.productCard).join('')
+      : UI.empty('还没有人发布商品，来当第一个吧');
+
+    const notices = data.notices || [];
+    document.getElementById('notices').innerHTML = notices.length
+      ? notices.map(function (n) {
+          return '<div style="padding:12px 0;border-bottom:1px solid var(--line)">' +
+            '<div style="font-weight:600">' + UI.escapeHtml(n.title) + '</div>' +
+            '<div style="color:var(--text-2);font-size:13px;margin-top:3px">' + UI.escapeHtml(n.content || '') + '</div>' +
+            '</div>';
+        }).join('')
+      : UI.empty('暂无公告');
+  } catch (e) {
+    UI.toast(e.message, true);
+  }
+
+  try {
+    const keywords = await API.get('/api/home/keywords', { limit: 8 });
+    if (keywords && keywords.length) {
+      document.getElementById('hot-keywords').innerHTML = '热门搜索：' + keywords.map(function (k) {
+        return '<a href="products.html?keyword=' + encodeURIComponent(k) + '" style="color:var(--primary-dark);margin-right:10px">' + UI.escapeHtml(k) + '</a>';
+      }).join('');
+    }
+  } catch (e) { /* 忽略 */ }
+}
+
+document.getElementById('search-form').addEventListener('submit', function (event) {
+  event.preventDefault();
+  const keyword = document.getElementById('search-input').value.trim();
+  location.href = 'products.html' + (keyword ? '?keyword=' + encodeURIComponent(keyword) : '');
+});
+
+loadHome();
+</script>
+</body>
+</html>

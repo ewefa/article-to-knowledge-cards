@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>管理后台 · 校园二手集市</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<main class="container" style="padding-top:22px">
+  <div class="admin-layout">
+    <aside class="admin-menu" id="menu">
+      <button data-sec="dashboard" class="on">数据看板</button>
+      <button data-sec="products">商品审核</button>
+      <button data-sec="reports">举报处理</button>
+      <button data-sec="users">用户管理</button>
+      <button data-sec="categories">分类管理</button>
+      <button data-sec="notices">公告轮播</button>
+      <button data-sec="settings">系统设置</button>
+    </aside>
+    <section id="content"><div class="panel"><div class="empty">加载中…</div></div></section>
+  </div>
+</main>
+
+<div id="modal-root"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+if (!API.isLogin()) {
+  location.href = 'login.html?next=admin.html';
+  throw new Error('need login');
+}
+if (!API.isAdmin()) {
+  document.getElementById('content').innerHTML = '<div class="panel">' + UI.empty('仅管理员可访问该页面') + '</div>';
+  throw new Error('not admin');
+}
+
+const STATUS_TEXT = { 0: '待审核', 1: '在售', 2: '已下架', 3: '已售出', 4: '审核驳回', 5: '违规下架' };
+const REPORT_STATUS = { 0: '待处理', 1: '已处理', 2: '已驳回' };
+const content = document.getElementById('content');
+
+function modal(title, body, onOk, okText) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML =
+    '<div class="modal-mask" id="mask">' +
+      '<div class="modal">' +
+        '<div class="modal-head"><b>' + title + '</b><button class="btn btn-ghost btn-sm" id="modal-close">关闭</button></div>' +
+        '<div class="modal-body">' + body + '</div>' +
+        '<div class="modal-foot">' +
+          '<button class="btn btn-ghost" id="modal-cancel">取消</button>' +
+          '<button class="btn" id="modal-ok">' + (okText || '确定') + '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  const close = function () { root.innerHTML = ''; };
+  document.getElementById('modal-close').addEventListener('click', close);
+  document.getElementById('modal-cancel').addEventListener('click', close);
+  document.getElementById('mask').addEventListener('click', function (e) { if (e.target.id === 'mask') close(); });
+  document.getElementById('modal-ok').addEventListener('click', function () {
+    Promise.resolve(onOk()).then(function (keep) { if (!keep) close(); }).catch(function (e) { UI.toast(e.message, true); });
+  });
+}
+
+function preview(url) {
+  if (!url) return;
+  modal('图片预览', '<img src="' + UI.escapeHtml(url) + '" style="max-width:100%;border-radius:12px">', function () { return false; }, '关闭');
+}
+
+/* ==================== 数据看板 ==================== */
+async function renderDashboard() {
+  content.innerHTML = '<div class="panel"><div class="empty">统计中…</div></div>';
+  const s = await API.get('/api/admin/stats');
+  const cards = [
+    ['总用户数', s.totalUsers], ['今日新增用户', s.todayUsers],
+    ['商品总数', s.totalProducts], ['在售商品', s.onSaleProducts],
+    ['今日发布', s.todayProducts], ['待审核商品', s.pendingProducts],
+    ['累计浏览量', s.totalViews], ['待处理举报', s.pendingReports],
+    ['收藏总数', s.totalFavorites], ['留言总数', s.totalComments]
+  ];
+  content.innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+        '<div class="section-title">数据概览</div>' +
+        '<button class="btn btn-ghost btn-sm" id="btn-refresh">刷新统计</button>' +
+      '</div>' +
+      '<div class="stat-grid">' + cards.map(function (c) {
+        return '<div class="stat-card"><div class="stat-value">' + c[1] + '</div><div class="stat-label">' + c[0] + '</div></div>';
+      }).join('') + '</div>' +
+    '</div>' +
+    '<div class="two-col" style="margin-top:18px">' +
+      '<div class="panel"><div class="section-title">近 7 天发布趋势</div><div id="trend-publish" class="bar-chart" style="margin-top:18px"></div></div>' +
+      '<div class="panel"><div class="section-title">分类商品分布</div><div id="trend-category" class="bar-chart" style="margin-top:18px"></div></div>' +
+    '</div>';
+
+  document.getElementById('btn-refresh').addEventListener('click', async function () {
+    try { await API.put('/api/admin/stats/refresh'); UI.toast('统计已刷新'); renderDashboard(); }
+    catch (e) { UI.toast(e.message, true); }
+  });
+
+  drawBars('trend-publish', s.publishTrend || []);
+  drawBars('trend-category', s.categoryStat || []);
+
+  // 待处理事项提示
+  if (s.pendingProducts > 0 || s.pendingReports > 0) {
+    const tip = document.createElement('div');
+    tip.className = 'panel';
+    tip.style.marginTop = '18px';
+    tip.innerHTML = '<div class="section-title">待处理事项</div>' +
+      '<div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">' +
+        (s.pendingProducts > 0 ? '<a class="btn btn-soft btn-sm" href="javascript:void(0)" data-goto="products">' + s.pendingProducts + ' 件商品等待审核</a>' : '') +
+        (s.pendingReports > 0 ? '<a class="btn btn-soft btn-sm" href="javascript:void(0)" data-goto="reports">' + s.pendingReports + ' 条举报等待处理</a>' : '') +
+      '</div>';
+    content.appendChild(tip);
+    tip.querySelectorAll('[data-goto]').forEach(function (btn) {
+      btn.addEventListener('click', function () { switchSection(btn.dataset.goto); });
+    });
+  }
+}
+
+function drawBars(elementId, items) {
+  const host = document.getElementById(elementId);
+  if (!items.length) { host.innerHTML = UI.empty('暂无数据'); return; }
+  const max = Math.max.apply(null, items.map(function (i) { return i.value || 0; })) || 1;
+  host.innerHTML = items.map(function (item) {
+    const height = Math.max(4, Math.round((item.value || 0) / max * 130));
+    return '<div class="bar-col">' +
+      '<div class="bar-value">' + (item.value || 0) + '</div>' +
+      '<div class="bar" style="height:' + height + 'px"></div>' +
+      '<div class="bar-label">' + UI.escapeHtml(item.name) + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+/* ==================== 商品审核 ==================== */
+let productFilter = { status: '', keyword: '', page: 1 };
+
+async function renderProducts() {
+  content.innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px">' +
+        '<div class="section-title" style="margin-right:auto">商品审核管理</div>' +
+        '<select class="input" id="f-status" style="width:150px">' +
+          '<option value="">全部状态</option>' +
+          '<option value="0">待审核</option><option value="1">在售</option><option value="2">已下架</option>' +
+          '<option value="3">已售出</option><option value="4">审核驳回</option><option value="5">违规下架</option>' +
+        '</select>' +
+        '<input class="input" id="f-keyword" placeholder="搜索商品标题" style="width:200px">' +
+        '<button class="btn btn-sm" id="f-search">查询</button>' +
+      '</div>' +
+      '<div style="overflow-x:auto"><table class="table" id="product-table"></table></div>' +
+      '<div class="pagination" id="product-pagination"></div>' +
+    '</div>';
+
+  document.getElementById('f-status').value = productFilter.status;
+  document.getElementById('f-keyword').value = productFilter.keyword;
+  document.getElementById('f-search').addEventListener('click', function () {
+    productFilter.status = document.getElementById('f-status').value;
+    productFilter.keyword = document.getElementById('f-keyword').value.trim();
+    loadProducts(1);
+  });
+  loadProducts(productFilter.page || 1);
+}
+
+async function loadProducts(page) {
+  const table = document.getElementById('product-table');
+  table.innerHTML = '<tr><td class="empty">加载中…</td></tr>';
+  try {
+    const data = await API.get('/api/admin/products', {
+      status: productFilter.status, keyword: productFilter.keyword, page: page, size: 10
+    });
+    productFilter.page = data.page;
+    if (!data.records.length) {
+      table.innerHTML = '<tr><td class="empty">没有符合条件的商品</td></tr>';
+    } else {
+      table.innerHTML =
+        '<thead><tr><th>封面</th><th>商品</th><th>卖家</th><th>价格</th><th>状态</th><th>发布时间</th><th>操作</th></tr></thead>' +
+        '<tbody>' + data.records.map(function (p) {
+          const cover = (p.images && p.images[0]) || p.cover;
+          return '<tr>' +
+            '<td><img class="thumb-sm" src="' + UI.escapeHtml(cover || '/images/products/p1.jpg') + '" data-preview="' + UI.escapeHtml(cover || '') + '"></td>' +
+            '<td style="max-width:260px">' +
+              '<a href="product.html?id=' + p.id + '" target="_blank" style="font-weight:600">' + UI.escapeHtml(p.title) + '</a>' +
+              '<div style="color:var(--text-3);font-size:12px;margin-top:3px">' + UI.escapeHtml(p.categoryName || '') + ' · ' + UI.escapeHtml(p.tradePlace || '') + '</div>' +
+            '</td>' +
+            '<td>' + UI.escapeHtml(p.sellerName || '') + '</td>' +
+            '<td>¥' + UI.money(p.price) + '</td>' +
+            '<td>' + UI.statusChip(p.status) + (p.rejectReason ? '<div style="color:var(--danger);font-size:12px;margin-top:3px">' + UI.escapeHtml(p.rejectReason) + '</div>' : '') + '</td>' +
+            '<td style="font-size:12px;color:var(--text-3)">' + UI.escapeHtml(p.publishTime || p.createTime || '') + '</td>' +
+            '<td class="row-actions">' +
+              (p.status === 0 ? '<button class="btn btn-sm" data-audit-pass="' + p.id + '">通过</button>' +
+                                '<button class="btn btn-ghost btn-sm" data-audit-reject="' + p.id + '">驳回</button>' : '') +
+              (p.status !== 5 ? '<button class="btn btn-ghost btn-sm" data-offline="' + p.id + '">强制下架</button>' : '') +
+              '<button class="btn btn-danger btn-sm" data-del="' + p.id + '">删除</button>' +
+            '</td>' +
+          '</tr>';
+        }).join('') + '</tbody>';
+      bindProductActions();
+    }
+    UI.renderPagination(document.getElementById('product-pagination'), data.page, data.pages, loadProducts);
+  } catch (e) {
+    table.innerHTML = '<tr><td class="empty">' + UI.escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+function bindProductActions() {
+  document.querySelectorAll('[data-preview]').forEach(function (img) {
+    img.addEventListener('click', function () { preview(img.dataset.preview); });
+  });
+  document.querySelectorAll('[data-audit-pass]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      try {
+        await API.put('/api/admin/products/' + btn.dataset.auditPass + '/audit', { pass: true });
+        UI.toast('审核通过，商品已上架');
+        loadProducts(productFilter.page);
+      } catch (e) { UI.toast(e.message, true); }
+    });
+  });
+  document.querySelectorAll('[data-audit-reject]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      modal('驳回商品',
+        '<div class="field"><label>驳回理由</label><textarea class="input" id="reject-reason" maxlength="100" placeholder="请说明驳回原因，将展示给卖家"></textarea></div>',
+        async function () {
+          const reason = document.getElementById('reject-reason').value.trim();
+          if (!reason) { UI.toast('请填写驳回理由', true); return true; }
+          await API.put('/api/admin/products/' + btn.dataset.auditReject + '/audit', { pass: false, reason: reason });
+          UI.toast('已驳回');
+          loadProducts(productFilter.page);
+        }, '确认驳回');
+    });
+  });
+  document.querySelectorAll('[data-offline]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      modal('强制下架',
+        '<div class="field"><label>下架理由</label><input class="input" id="offline-reason" maxlength="100" placeholder="如：商品信息违规"></div>' +
+        '<div class="hint">该商品将被标记为违规下架，卖家会收到通知。</div>',
+        async function () {
+          const reason = document.getElementById('offline-reason').value.trim();
+          await API.put('/api/admin/products/' + btn.dataset.offline + '/offline?reason=' + encodeURIComponent(reason));
+          UI.toast('已强制下架');
+          loadProducts(productFilter.page);
+        }, '确认下架');
+    });
+  });
+  document.querySelectorAll('[data-del]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!confirm('确定删除该商品？此操作不可恢复。')) return;
+      try {
+        await API.del('/api/admin/products/' + btn.dataset.del);
+        UI.toast('已删除');
+        loadProducts(productFilter.page);
+      } catch (e) { UI.toast(e.message, true); }
+    });
+  });
+}
+
+/* ==================== 举报处理 ==================== */
+let reportFilter = { status: '', page: 1 };
+
+async function renderReports() {
+  content.innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">' +
+        '<div class="section-title" style="margin-right:auto">举报处理</div>' +
+        '<select class="input" id="r-status" style="width:150px">' +
+          '<option value="">全部</option><option value="0">待处理</option><option value="1">已处理</option><option value="2">已驳回</option>' +
+        '</select>' +
+      '</div>' +
+      '<div id="report-list"></div>' +
+      '<div class="pagination" id="report-pagination"></div>' +
+    '</div>';
+  document.getElementById('r-status').value = reportFilter.status;
+  document.getElementById('r-status').addEventListener('change', function () {
+    reportFilter.status = this.value;
+    loadReports(1);
+  });
+  loadReports(reportFilter.page || 1);
+}
+
+async function loadReports(page) {
+  const host = document.getElementById('report-list');
+  host.innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    const data = await API.get('/api/admin/reports', { status: reportFilter.status, page: page, size: 8 });
+    reportFilter.page = data.page;
+    if (!data.records.length) {
+      host.innerHTML = UI.empty('暂无举报记录');
+    } else {
+      host.innerHTML = data.records.map(function (r) {
+        return '<div class="report-item">' +
+          '<img class="thumb" src="' + UI.escapeHtml(r.productCover || '/images/products/p1.jpg') + '" onerror="this.src=\'/images/products/p1.jpg\'">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+              '<a href="product.html?id=' + r.productId + '" target="_blank" style="font-weight:600">' + UI.escapeHtml(r.productTitle || ('商品 #' + r.productId)) + '</a>' +
+              '<span class="chip ' + (r.status === 0 ? 'chip-orange' : r.status === 1 ? 'chip-green' : 'chip-grey') + '">' + (REPORT_STATUS[r.status] || '') + '</span>' +
+              '<span class="comment-time" style="margin-left:auto">' + UI.timeText(r.createTime) + '</span>' +
+            '</div>' +
+            '<div style="color:var(--text-2);font-size:13px;margin-top:6px">' +
+              '举报人：' + UI.escapeHtml(r.reporterName || '') + ' · 卖家：' + UI.escapeHtml(r.sellerName || '') +
+            '</div>' +
+            '<div style="margin-top:6px;font-size:13px"><b>理由：</b>' + UI.escapeHtml(r.reason || '') +
+              (r.description ? '<div style="color:var(--text-2);margin-top:3px">' + UI.escapeHtml(r.description) + '</div>' : '') + '</div>' +
+            (r.handleRemark ? '<div style="color:var(--text-3);font-size:12px;margin-top:4px">处理说明：' + UI.escapeHtml(r.handleRemark) + ' · ' + UI.timeText(r.handleTime) + '</div>' : '') +
+          '</div>' +
+          (r.status === 0 ? '<div class="row-actions" style="flex-direction:column">' +
+            '<button class="btn btn-sm" data-act="offline" data-id="' + r.id + '">下架商品</button>' +
+            '<button class="btn btn-ghost btn-sm" data-act="warn" data-id="' + r.id + '">警告用户</button>' +
+            '<button class="btn btn-danger btn-sm" data-act="ban" data-id="' + r.id + '">封禁卖家</button>' +
+            '<button class="btn btn-ghost btn-sm" data-act="reject" data-id="' + r.id + '">驳回举报</button>' +
+          '</div>' : '') +
+        '</div>';
+      }).join('');
+      host.querySelectorAll('[data-act]').forEach(function (btn) {
+        btn.addEventListener('click', function () { handleReport(btn.dataset.id, btn.dataset.act); });
+      });
+    }
+    UI.renderPagination(document.getElementById('report-pagination'), data.page, data.pages, loadReports);
+  } catch (e) {
+    host.innerHTML = UI.empty(e.message);
+  }
+}
+
+const ACT_TEXT = { offline: '下架商品', warn: '警告用户', ban: '封禁卖家', reject: '驳回举报' };
+
+function handleReport(id, action) {
+  modal(ACT_TEXT[action] + ' · 处理说明',
+    '<div class="field"><label>处理说明（将记录在举报单中，下架/警告/封禁会通知卖家）</label>' +
+    '<textarea class="input" id="handle-remark" maxlength="100" placeholder="选填"></textarea></div>',
+    async function () {
+      const remark = document.getElementById('handle-remark').value.trim();
+      await API.put('/api/admin/reports/' + id + '/handle', { action: action, remark: remark });
+      UI.toast('处理完成');
+      loadReports(reportFilter.page);
+    }, '确认处理');
+}
+
+/* ==================== 用户管理 ==================== */
+let userFilter = { keyword: '', page: 1 };
+
+async function renderUsers() {
+  content.innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">' +
+        '<div class="section-title" style="margin-right:auto">用户管理</div>' +
+        '<input class="input" id="u-keyword" placeholder="搜索账号/姓名/手机号" style="width:220px">' +
+        '<button class="btn btn-sm" id="u-search">查询</button>' +
+      '</div>' +
+      '<div style="overflow-x:auto"><table class="table" id="user-table"></table></div>' +
+      '<div class="pagination" id="user-pagination"></div>' +
+    '</div>';
+  document.getElementById('u-keyword').value = userFilter.keyword;
+  document.getElementById('u-search').addEventListener('click', function () {
+    userFilter.keyword = document.getElementById('u-keyword').value.trim();
+    loadUsers(1);
+  });
+  loadUsers(userFilter.page || 1);
+}
+
+async function loadUsers(page) {
+  const table = document.getElementById('user-table');
+  table.innerHTML = '<tr><td class="empty">加载中…</td></tr>';
+  try {
+    const data = await API.get('/api/admin/users', { keyword: userFilter.keyword, page: page, size: 10 });
+    userFilter.page = data.page;
+    if (!data.records.length) {
+      table.innerHTML = '<tr><td class="empty">没有匹配的用户</td></tr>';
+    } else {
+      table.innerHTML =
+        '<thead><tr><th>账号</th><th>姓名 / 昵称</th><th>院系</th><th>手机号</th><th>身份</th><th>状态</th><th>商品</th><th>操作</th></tr></thead>' +
+        '<tbody>' + data.records.map(function (u) {
+          return '<tr>' +
+            '<td>' + UI.escapeHtml(u.account) + (u.role === 'ADMIN' ? ' <span class="chip chip-green">管理员</span>' : '') + '</td>' +
+            '<td>' + UI.escapeHtml(u.name || '') + '<div style="color:var(--text-3);font-size:12px">' + UI.escapeHtml(u.nickname || '') + '</div></td>' +
+            '<td>' + UI.escapeHtml(u.department || '-') + '</td>' +
+            '<td>' + UI.escapeHtml(u.phone || '-') + '</td>' +
+            '<td>' + (u.identityStatus === 1 ? '<span class="chip chip-green">已认证</span>' :
+                      u.identityStatus === 0 ? '<span class="chip chip-orange">待审核</span>' : '<span class="chip chip-red">未通过</span>') + '</td>' +
+            '<td>' + (u.status === 0 ? '<span class="chip chip-green">正常</span>' : '<span class="chip chip-red">已禁用</span>') + '</td>' +
+            '<td style="font-size:12px">在售 ' + (u.onSaleCount || 0) + '<br>已售 ' + (u.soldCount || 0) + '</td>' +
+            '<td class="row-actions">' +
+              (u.role !== 'ADMIN' ? (u.status === 0
+                ? '<button class="btn btn-ghost btn-sm" data-ban="' + u.id + '">禁用</button>'
+                : '<button class="btn btn-soft btn-sm" data-unban="' + u.id + '">解封</button>') : '') +
+              (u.identityStatus === 0 ? '<button class="btn btn-sm" data-identity="' + u.id + '">身份审核</button>' : '') +
+            '</td>' +
+          '</tr>';
+        }).join('') + '</tbody>';
+      table.querySelectorAll('[data-ban]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (!confirm('禁用后该用户将立即下线且无法登录，确定？')) return;
+          try {
+            await API.put('/api/admin/users/' + btn.dataset.ban + '/status', { status: 1 });
+            UI.toast('已禁用');
+            loadUsers(userFilter.page);
+          } catch (e) { UI.toast(e.message, true); }
+        });
+      });
+      table.querySelectorAll('[data-unban]').forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          try {
+            await API.put('/api/admin/users/' + btn.dataset.unban + '/status', { status: 0 });
+            UI.toast('已解封');
+            loadUsers(userFilter.page);
+          } catch (e) { UI.toast(e.message, true); }
+        });
+      });
+      table.querySelectorAll('[data-identity]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          modal('身份审核',
+            '<div class="field"><label>审核结果</label><select class="input" id="identity-status">' +
+              '<option value="1">通过（确认为本校师生）</option><option value="2">驳回（非本校人员）</option></select></div>' +
+            '<div class="field"><label>备注</label><input class="input" id="identity-remark" maxlength="100" placeholder="选填"></div>',
+            async function () {
+              await API.put('/api/admin/users/' + btn.dataset.identity + '/identity', {
+                status: Number(document.getElementById('identity-status').value),
+                remark: document.getElementById('identity-remark').value.trim()
+              });
+              UI.toast('审核完成');
+              loadUsers(userFilter.page);
+            }, '提交');
+        });
+      });
+    }
+    UI.renderPagination(document.getElementById('user-pagination'), data.page, data.pages, loadUsers);
+  } catch (e) {
+    table.innerHTML = '<tr><td class="empty">' + UI.escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+/* ==================== 分类管理 ==================== */
+async function renderCategories() {
+  content.innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+        '<div class="section-title">分类管理</div>' +
+        '<button class="btn btn-sm" id="btn-add-category">+ 新增分类</button>' +
+      '</div>' +
+      '<table class="table" id="category-table"><tr><td class="empty">加载中…</td></tr></table>' +
+    '</div>';
+  document.getElementById('btn-add-category').addEventListener('click', function () { editCategory(null); });
+  await loadCategories();
+}
+
+async function loadCategories() {
+  const table = document.getElementById('category-table');
+  try {
+    const list = await API.get('/api/admin/categories');
+    table.innerHTML = '<thead><tr><th>ID</th><th>名称</th><th>排序</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
+      list.map(function (c) {
+        return '<tr>' +
+          '<td>' + c.id + '</td>' +
+          '<td>' + UI.escapeHtml(c.name) + '</td>' +
+          '<td>' + (c.sort == null ? 99 : c.sort) + '</td>' +
+          '<td>' + (c.status === 1 ? '<span class="chip chip-green">启用</span>' : '<span class="chip chip-grey">停用</span>') + '</td>' +
+          '<td class="row-actions">' +
+            '<button class="btn btn-ghost btn-sm" data-edit-cat="' + c.id + '">编辑</button>' +
+            '<button class="btn btn-danger btn-sm" data-del-cat="' + c.id + '">删除</button>' +
+          '</td>' +
+        '</tr>';
+      }).join('') + '</tbody>';
+    table.querySelectorAll('[data-edit-cat]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const item = list.find(function (c) { return String(c.id) === btn.dataset.editCat; });
+        editCategory(item);
+      });
+    });
+    table.querySelectorAll('[data-del-cat]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        if (!confirm('确定删除该分类？分类下存在商品时无法删除。')) return;
+        try {
+          await API.del('/api/admin/categories/' + btn.dataset.delCat);
+          UI.toast('已删除');
+          loadCategories();
+        } catch (e) { UI.toast(e.message, true); }
+      });
+    });
+  } catch (e) {
+    table.innerHTML = '<tr><td class="empty">' + UI.escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+function editCategory(item) {
+  const isEdit = !!item;
+  modal(isEdit ? '编辑分类' : '新增分类',
+    '<div class="field"><label>分类名称</label><input class="input" id="cat-name" maxlength="20" value="' + (isEdit ? UI.escapeHtml(item.name) : '') + '"></div>' +
+    '<div class="form-row">' +
+      '<div class="field"><label>排序（越小越前）</label><input class="input" type="number" id="cat-sort" value="' + (isEdit && item.sort != null ? item.sort : 99) + '"></div>' +
+      '<div class="field"><label>状态</label><select class="input" id="cat-status">' +
+        '<option value="1"' + (!isEdit || item.status === 1 ? ' selected' : '') + '>启用</option>' +
+        '<option value="0"' + (isEdit && item.status === 0 ? ' selected' : '') + '>停用</option>' +
+      '</select></div>' +
+    '</div>',
+    async function () {
+      const name = document.getElementById('cat-name').value.trim();
+      if (!name) { UI.toast('请填写分类名称', true); return true; }
+      const payload = { name: name, sort: Number(document.getElementById('cat-sort').value) || 99, status: Number(document.getElementById('cat-status').value) };
+      if (isEdit) await API.put('/api/admin/categories/' + item.id, payload);
+      else await API.post('/api/admin/categories', payload);
+      UI.toast(isEdit ? '已保存' : '已新增');
+      loadCategories();
+    }, '保存');
+}
+
+/* ==================== 公告轮播 ==================== */
+async function renderNotices() {
+  content.innerHTML =
+    '<div class="panel">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">' +
+        '<div class="section-title">公告 / 轮播管理</div>' +
+        '<button class="btn btn-sm" id="btn-add-notice">+ 新增</button>' +
+      '</div>' +
+      '<div id="notice-list"></div>' +
+    '</div>';
+  document.getElementById('btn-add-notice').addEventListener('click', function () { editNotice(null); });
+  await loadNotices();
+}
+
+async function loadNotices() {
+  const host = document.getElementById('notice-list');
+  try {
+    const list = await API.get('/api/admin/notices');
+    host.innerHTML = list.length ? list.map(function (n) {
+      return '<div class="list-row">' +
+        (n.type === 0 && n.image ? '<img class="thumb" src="' + UI.escapeHtml(n.image) + '" data-preview="' + UI.escapeHtml(n.image) + '">' : '<div class="thumb" style="display:flex;align-items:center;justify-content:center;background:var(--bg-2);font-size:12px;color:var(--text-3)">公告</div>') +
+        '<div class="grow">' +
+          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+            '<b style="font-size:15px">' + UI.escapeHtml(n.title) + '</b>' +
+            '<span class="chip ' + (n.type === 0 ? 'chip-green' : 'chip-grey') + '">' + (n.type === 0 ? '轮播图' : '公告') + '</span>' +
+            (n.status === 1 ? '' : '<span class="chip chip-red">已隐藏</span>') +
+            '<span class="comment-time" style="margin-left:auto">排序 ' + (n.sort == null ? 99 : n.sort) + '</span>' +
+          '</div>' +
+          '<div style="color:var(--text-2);font-size:13px;margin-top:5px">' + UI.escapeHtml(n.content || '') + '</div>' +
+        '</div>' +
+        '<div class="row-actions">' +
+          '<button class="btn btn-ghost btn-sm" data-edit-notice="' + n.id + '">编辑</button>' +
+          '<button class="btn btn-danger btn-sm" data-del-notice="' + n.id + '">删除</button>' +
+        '</div>' +
+      '</div>';
+    }).join('') : UI.empty('暂无公告');
+    host.querySelectorAll('[data-preview]').forEach(function (img) {
+      img.addEventListener('click', function () { preview(img.dataset.preview); });
+    });
+    host.querySelectorAll('[data-edit-notice]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        editNotice(list.find(function (n) { return String(n.id) === btn.dataset.editNotice; }));
+      });
+    });
+    host.querySelectorAll('[data-del-notice]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        if (!confirm('确定删除？')) return;
+        try {
+          await API.del('/api/admin/notices/' + btn.dataset.delNotice);
+          UI.toast('已删除');
+          loadNotices();
+        } catch (e) { UI.toast(e.message, true); }
+      });
+    });
+  } catch (e) {
+    host.innerHTML = UI.empty(e.message);
+  }
+}
+
+function editNotice(item) {
+  const isEdit = !!item;
+  modal(isEdit ? '编辑公告/轮播' : '新增公告/轮播',
+    '<div class="form-row">' +
+      '<div class="field"><label>类型</label><select class="input" id="n-type">' +
+        '<option value="0"' + (!isEdit || item.type === 0 ? ' selected' : '') + '>轮播图（首页大图）</option>' +
+        '<option value="1"' + (isEdit && item.type === 1 ? ' selected' : '') + '>公告（首页文字公告）</option>' +
+      '</select></div>' +
+      '<div class="field"><label>排序</label><input class="input" type="number" id="n-sort" value="' + (isEdit && item.sort != null ? item.sort : 99) + '"></div>' +
+    '</div>' +
+    '<div class="field"><label>标题</label><input class="input" id="n-title" maxlength="50" value="' + (isEdit ? UI.escapeHtml(item.title) : '') + '"></div>' +
+    '<div class="field"><label>内容</label><textarea class="input" id="n-content" maxlength="255">' + (isEdit ? UI.escapeHtml(item.content || '') : '') + '</textarea></div>' +
+    '<div class="field"><label>图片地址（轮播图必填，可用 /images/banner/banner1.png）</label><input class="input" id="n-image" value="' + (isEdit ? UI.escapeHtml(item.image || '') : '') + '"></div>' +
+    '<div class="field"><label>状态</label><select class="input" id="n-status">' +
+      '<option value="1"' + (!isEdit || item.status === 1 ? ' selected' : '') + '>显示</option>' +
+      '<option value="0"' + (isEdit && item.status === 0 ? ' selected' : '') + '>隐藏</option>' +
+    '</select></div>',
+    async function () {
+      const payload = {
+        title: document.getElementById('n-title').value.trim(),
+        content: document.getElementById('n-content').value.trim(),
+        image: document.getElementById('n-image').value.trim(),
+        type: Number(document.getElementById('n-type').value),
+        sort: Number(document.getElementById('n-sort').value) || 99,
+        status: Number(document.getElementById('n-status').value)
+      };
+      if (!payload.title) { UI.toast('请填写标题', true); return true; }
+      if (isEdit) await API.put('/api/admin/notices/' + item.id, payload);
+      else await API.post('/api/admin/notices', payload);
+      UI.toast(isEdit ? '已保存' : '已新增');
+      loadNotices();
+    }, '保存');
+}
+
+/* ==================== 系统设置 ==================== */
+const CONFIG_FIELDS = [
+  { key: 'product.audit.enabled', label: '商品发布审核开关', type: 'select', options: [['1', '开启（新商品需管理员审核）'], ['0', '关闭（发布后直接上架）']], hint: '开启后卖家发布/编辑商品需审核通过才可见' },
+  { key: 'product.expire.days', label: '商品有效期（天）', type: 'number', hint: '超过有效期未售出的商品会被自动下架，0 表示不限制' },
+  { key: 'user.identity.check', label: '注册身份审核开关', type: 'select', options: [['1', '开启（新注册需管理员审核身份）'], ['0', '关闭（注册即可发布）']], hint: '用于限制校外人员发布商品' },
+  { key: 'platform.name', label: '平台名称', type: 'text' },
+  { key: 'platform.notice', label: '平台公告', type: 'text' }
+];
+
+async function renderSettings() {
+  const configs = await API.get('/api/admin/configs');
+  content.innerHTML =
+    '<div class="panel">' +
+      '<div class="section-title" style="margin-bottom:6px">系统设置</div>' +
+      '<div class="section-sub" style="margin-bottom:18px">配置保存在 MySQL 的 t_sys_config 表，修改后立即生效（配置读取有 5 分钟缓存，保存时会自动清除）。</div>' +
+      '<form id="config-form">' +
+        CONFIG_FIELDS.map(function (field) {
+          const value = configs[field.key] == null ? '' : configs[field.key];
+          let input;
+          if (field.type === 'select') {
+            input = '<select class="input" data-key="' + field.key + '">' + field.options.map(function (opt) {
+              return '<option value="' + opt[0] + '"' + (String(value) === opt[0] ? ' selected' : '') + '>' + opt[1] + '</option>';
+            }).join('') + '</select>';
+          } else if (field.type === 'number') {
+            input = '<input class="input" type="number" data-key="' + field.key + '" value="' + UI.escapeHtml(value) + '">';
+          } else {
+            input = '<input class="input" data-key="' + field.key + '" value="' + UI.escapeHtml(value) + '">';
+          }
+          return '<div class="field"><label>' + field.label + '</label>' + input +
+            (field.hint ? '<div class="hint">' + field.hint + '</div>' : '') + '</div>';
+        }).join('') +
+        '<div style="display:flex;justify-content:flex-end;gap:10px">' +
+          '<button class="btn" type="submit">保存设置</button>' +
+        '</div>' +
+      '</form>' +
+      '<div class="panel" style="margin-top:20px;background:var(--bg-2)">' +
+        '<div class="section-title" style="font-size:15px">账号信息</div>' +
+        '<div class="section-sub" style="margin-top:8px">当前管理员：' +
+          UI.escapeHtml((API.getUser() || {}).nickname || (API.getUser() || {}).name || '') +
+          '（' + UI.escapeHtml((API.getUser() || {}).account || '') + '）</div>' +
+        '<div style="margin-top:12px"><a class="btn btn-ghost btn-sm" href="index.html">返回前台首页</a></div>' +
+      '</div>' +
+    '</div>';
+
+  document.getElementById('config-form').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    const inputs = document.querySelectorAll('#config-form [data-key]');
+    try {
+      for (let i = 0; i < inputs.length; i++) {
+        await API.put('/api/admin/configs', { configKey: inputs[i].dataset.key, configValue: inputs[i].value });
+      }
+      UI.toast('设置已保存');
+    } catch (e) { UI.toast(e.message, true); }
+  });
+}
+
+/* ==================== 切换 ==================== */
+const RENDERERS = {
+  dashboard: renderDashboard,
+  products: renderProducts,
+  reports: renderReports,
+  users: renderUsers,
+  categories: renderCategories,
+  notices: renderNotices,
+  settings: renderSettings
+};
+
+function switchSection(section) {
+  if (!RENDERERS[section]) section = 'dashboard';
+  document.querySelectorAll('#menu button').forEach(function (btn) {
+    btn.classList.toggle('on', btn.dataset.sec === section);
+  });
+  location.hash = section;
+  content.innerHTML = '<div class="panel"><div class="empty">加载中…</div></div>';
+  RENDERERS[section]().catch(function (e) {
+    content.innerHTML = '<div class="panel">' + UI.empty(e.message) + '</div>';
+  });
+}
+
+document.querySelectorAll('#menu button').forEach(function (btn) {
+  btn.addEventListener('click', function () { switchSection(btn.dataset.sec); });
+});
+
+switchSection((location.hash || '#dashboard').slice(1));
+</script>
+</body>
+</html>

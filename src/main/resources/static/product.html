@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商品详情 · 校园二手集市</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<main class="container" style="padding-top:22px">
+  <div id="detail"></div>
+
+  <section class="section" id="comment-section" style="display:none">
+    <div class="section-head">
+      <div class="section-title">留言咨询 <span class="section-sub" id="comment-count"></span></div>
+    </div>
+    <div class="panel">
+      <div id="comment-form-wrap" style="margin-bottom:14px">
+        <textarea class="input" id="comment-input" placeholder="想了解商品的哪些情况？礼貌提问更容易得到回复～"></textarea>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+          <span class="hint" id="reply-hint"></span>
+          <button class="btn" id="btn-comment">发表留言</button>
+        </div>
+      </div>
+      <div id="comments"></div>
+    </div>
+  </section>
+
+  <div class="footer">线下交易请选择人多的公共场所，注意人身与财产安全</div>
+</main>
+
+<div id="modal-root"></div>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+const productId = Number(UI.query('id'));
+let product = null;
+let replyTo = null;
+
+function renderDetail() {
+  const images = (product.images && product.images.length) ? product.images : ['/images/products/p1.jpg'];
+  const isOwner = product.owner;
+  document.getElementById('detail').innerHTML =
+    '<div class="two-col">' +
+      '<div>' +
+        '<div class="detail-gallery">' +
+          '<img class="main-img" id="main-img" src="' + UI.escapeHtml(images[0]) + '" alt="商品图">' +
+          (images.length > 1 ? '<div class="thumb-row" id="thumbs">' + images.map(function (src, i) {
+            return '<img src="' + UI.escapeHtml(src) + '" data-i="' + i + '" class="' + (i === 0 ? 'on' : '') + '">';
+          }).join('') + '</div>' : '') +
+        '</div>' +
+        '<div class="panel" style="margin-top:16px">' +
+          '<h1 class="detail-title">' + UI.escapeHtml(product.title) + ' ' + UI.statusChip(product.status) + '</h1>' +
+          '<div style="display:flex;align-items:baseline;gap:14px">' +
+            '<span class="detail-price">' + UI.money(product.price) + '</span>' +
+            (product.originalPrice ? '<span class="original" style="font-size:14px">原价 ¥' + UI.money(product.originalPrice) + '</span>' : '') +
+            (product.negotiable === 1 ? '<span class="chip chip-orange">可议价</span>' : '<span class="chip">一口价</span>') +
+          '</div>' +
+          '<div class="info-list">' +
+            '<div>分类：<span>' + UI.escapeHtml(product.categoryName || '-') + '</span></div>' +
+            '<div>交易地点：<span>' + UI.escapeHtml(product.tradePlace || '校内存包处') + '</span></div>' +
+            '<div>发布时间：<span>' + UI.escapeHtml(product.publishTime || product.createTime || '') + '</span></div>' +
+            '<div>浏览量：<span>' + (product.viewCount || 0) + '</span></div>' +
+            '<div>收藏：<span>' + (product.favoriteCount || 0) + '</span></div>' +
+            '<div>留言：<span>' + (product.commentCount || 0) + '</span></div>' +
+          '</div>' +
+          '<div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line);white-space:pre-wrap;color:var(--text-2)">' +
+            UI.escapeHtml(product.description || '卖家暂未填写详细描述') +
+          '</div>' +
+          '<div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">' +
+            (isOwner
+              ? '<a class="btn" href="publish.html?id=' + product.id + '">编辑商品</a>' +
+                '<a class="btn btn-ghost" href="user.html#products">管理我的商品</a>'
+              : '<button class="btn" id="btn-fav">' + (product.favorited ? '★ 已收藏' : '☆ 收藏') + '</button>' +
+                '<button class="btn btn-soft" id="btn-cart">加入清单</button>' +
+                '<button class="btn btn-ghost" id="btn-report">举报商品</button>') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div>' +
+        '<div class="side-card">' +
+          '<h3>卖家信息</h3>' +
+          '<div style="display:flex;align-items:center;gap:12px">' +
+            '<img class="avatar" style="width:52px;height:52px" src="' + UI.escapeHtml(product.sellerAvatar || '/images/avatar/default.png') + '">' +
+            '<div>' +
+              '<div style="font-weight:600;font-size:15px">' + UI.escapeHtml(product.sellerName || '同学') + '</div>' +
+              '<div style="color:var(--text-3);font-size:12px">' + UI.escapeHtml(product.sellerDepartment || '在校师生') + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="margin-top:14px" id="contact-box"></div>' +
+          '<a class="btn btn-ghost btn-block" style="margin-top:10px" href="seller.html?id=' + product.userId + '">查看卖家主页</a>' +
+        '</div>' +
+        '<div class="side-card">' +
+          '<h3>交易提示</h3>' +
+          '<div style="color:var(--text-2);font-size:13px;line-height:1.9">' +
+            '· 平台仅提供信息撮合，不支持线上支付<br>' +
+            '· 建议在校内公共场所当面验货交易<br>' +
+            '· 遇到虚假信息请及时举报<br>' +
+            '· 谨防先付款后发货等诈骗话术' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  if (images.length > 1) {
+    document.getElementById('thumbs').addEventListener('click', function (event) {
+      const img = event.target.closest('img');
+      if (!img) return;
+      document.getElementById('main-img').src = img.src;
+      document.querySelectorAll('#thumbs img').forEach(function (item) { item.classList.remove('on'); });
+      img.classList.add('on');
+    });
+  }
+
+  const contactBox = document.getElementById('contact-box');
+  if (product.owner) {
+    contactBox.innerHTML = '<div class="chip chip-green">这是你发布的商品</div>';
+  } else if (!API.isLogin()) {
+    contactBox.innerHTML = '<a class="btn btn-soft btn-block" href="login.html?next=' + encodeURIComponent(location.pathname + location.search) + '">登录后查看联系方式</a>';
+  } else if (product.contactPublic === 0) {
+    contactBox.innerHTML = '<div class="chip chip-gray">卖家选择不公开联系方式，请在留言中沟通</div>';
+  } else {
+    const parts = [];
+    if (product.wechat) parts.push('<div>微信：<b>' + UI.escapeHtml(product.wechat) + '</b></div>');
+    if (product.sellerPhone) parts.push('<div>手机：<b>' + UI.escapeHtml(product.sellerPhone) + '</b></div>');
+    contactBox.innerHTML = parts.length ? parts.join('') : '<div class="chip chip-gray">卖家暂未留下联系方式</div>';
+  }
+
+  const favBtn = document.getElementById('btn-fav');
+  if (favBtn) {
+    favBtn.addEventListener('click', async function () {
+      if (!UI.requireLogin()) return;
+      try {
+        const data = await API.post('/api/favorites/' + product.id + '/toggle');
+        product.favorited = data.favorited;
+        favBtn.textContent = data.favorited ? '★ 已收藏' : '☆ 收藏';
+        UI.toast(data.favorited ? '收藏成功' : '已取消收藏');
+      } catch (e) { UI.toast(e.message, true); }
+    });
+  }
+
+  const cartBtn = document.getElementById('btn-cart');
+  if (cartBtn) {
+    cartBtn.addEventListener('click', async function () {
+      if (!UI.requireLogin()) return;
+      try {
+        await API.post('/api/cart/' + product.id);
+        UI.toast('已加入意向清单，可在「个人中心 - 意向清单」查看');
+      } catch (e) { UI.toast(e.message, true); }
+    });
+  }
+
+  const reportBtn = document.getElementById('btn-report');
+  if (reportBtn) {
+    reportBtn.addEventListener('click', function () {
+      if (!UI.requireLogin()) return;
+      openReportModal();
+    });
+  }
+}
+
+function openReportModal() {
+  document.getElementById('modal-root').innerHTML =
+    '<div class="modal-mask" id="mask"><div class="modal">' +
+      '<h3>举报商品</h3>' +
+      '<div class="field"><label>举报理由</label>' +
+        '<select class="input" id="report-reason">' +
+          '<option>虚假信息</option><option>违规物品</option><option>广告骚扰</option>' +
+          '<option>色情低俗</option><option>价格欺诈</option><option>其他</option>' +
+        '</select></div>' +
+      '<div class="field"><label>补充说明</label>' +
+        '<textarea class="input" id="report-desc" placeholder="请描述具体问题，便于管理员核实"></textarea></div>' +
+      '<div class="modal-actions">' +
+        '<button class="btn btn-ghost" id="btn-cancel">取消</button>' +
+        '<button class="btn btn-danger" id="btn-submit-report">提交举报</button>' +
+      '</div>' +
+    '</div></div>';
+  document.getElementById('btn-cancel').addEventListener('click', closeModal);
+  document.getElementById('mask').addEventListener('click', function (e) { if (e.target.id === 'mask') closeModal(); });
+  document.getElementById('btn-submit-report').addEventListener('click', async function () {
+    const reason = document.getElementById('report-reason').value;
+    const description = document.getElementById('report-desc').value.trim();
+    try {
+      await API.post('/api/products/' + product.id + '/reports', { reason: reason, description: description });
+      closeModal();
+      UI.toast('举报已提交，管理员会尽快核实');
+    } catch (e) { UI.toast(e.message, true); }
+  });
+}
+
+function closeModal() {
+  document.getElementById('modal-root').innerHTML = '';
+}
+
+function renderComments(comments) {
+  const host = document.getElementById('comments');
+  document.getElementById('comment-count').textContent = '（' + comments.length + '）';
+  if (!comments.length) {
+    host.innerHTML = UI.empty('还没有留言，来问问卖家吧');
+    return;
+  }
+  host.innerHTML = comments.map(function (c) {
+    return '<div class="comment">' +
+      '<img class="avatar" src="' + UI.escapeHtml(c.avatar || '/images/avatar/default.png') + '">' +
+      '<div class="comment-main">' +
+        '<div class="comment-head"><span class="comment-name">' + UI.escapeHtml(c.nickname || '同学') + '</span>' +
+          '<span class="comment-time">' + UI.timeText(c.createTime) + '</span>' +
+          (c.userId === (API.getUser() || {}).id ? '<button class="btn btn-ghost btn-sm" data-del="' + c.id + '">删除</button>' : '') +
+        '</div>' +
+        '<div class="comment-text">' + UI.escapeHtml(c.content) + '</div>' +
+        (c.replies || []).map(function (r) {
+          return '<div class="reply"><b>' + UI.escapeHtml(r.nickname || '卖家') + '</b> 回复 ' +
+            (r.replyNickname ? '<b>' + UI.escapeHtml(r.replyNickname) + '</b>' : '') + '：' +
+            UI.escapeHtml(r.content) +
+            ' <span class="comment-time">' + UI.timeText(r.createTime) + '</span></div>';
+        }).join('') +
+        (API.isLogin() && !product.owner ? '<button class="btn btn-ghost btn-sm" style="margin-top:8px" data-reply="' + c.id + '" data-name="' + UI.escapeHtml(c.nickname || '') + '">回复</button>' : '') +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  host.querySelectorAll('[data-del]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      if (!confirm('确定删除这条留言？')) return;
+      try {
+        await API.del('/api/comments/' + btn.dataset.del);
+        UI.toast('已删除');
+        loadComments();
+      } catch (e) { UI.toast(e.message, true); }
+    });
+  });
+
+  host.querySelectorAll('[data-reply]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      replyTo = Number(btn.dataset.reply);
+      document.getElementById('reply-hint').textContent = '正在回复：' + btn.dataset.name;
+      document.getElementById('comment-input').focus();
+    });
+  });
+}
+
+async function loadComments() {
+  try {
+    const comments = await API.get('/api/products/' + productId + '/comments');
+    renderComments(comments);
+  } catch (e) { UI.toast(e.message, true); }
+}
+
+document.getElementById('btn-comment').addEventListener('click', async function () {
+  if (!UI.requireLogin()) return;
+  const content = document.getElementById('comment-input').value.trim();
+  if (!content) { UI.toast('请输入留言内容', true); return; }
+  try {
+    await API.post('/api/products/' + productId + '/comments', { content: content, parentId: replyTo });
+    document.getElementById('comment-input').value = '';
+    replyTo = null;
+    document.getElementById('reply-hint').textContent = '';
+    UI.toast('留言成功');
+    loadComments();
+  } catch (e) { UI.toast(e.message, true); }
+});
+
+async function load() {
+  if (!productId) { location.href = 'products.html'; return; }
+  try {
+    product = await API.get('/api/products/' + productId);
+    document.title = product.title + ' · 校园二手集市';
+    renderDetail();
+    document.getElementById('comment-section').style.display = '';
+    loadComments();
+  } catch (e) {
+    document.getElementById('detail').innerHTML = '<div class="panel">' + UI.empty(e.message) +
+      '<div style="text-align:center"><a class="btn" href="products.html">返回商品列表</a></div></div>';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

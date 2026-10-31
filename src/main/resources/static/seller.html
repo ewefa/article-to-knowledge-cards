@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>卖家主页 · 校园二手集市</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<main class="container" style="padding-top:22px">
+  <div id="seller-card" class="panel"><div class="empty">加载中…</div></div>
+  <div style="margin-top:24px">
+    <div class="section-title">在售商品 <span id="sale-count" class="section-sub"></span></div>
+    <div id="seller-products" class="product-grid" style="margin-top:16px"></div>
+  </div>
+</main>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+const sellerId = Number(UI.query('id'));
+const card = document.getElementById('seller-card');
+const list = document.getElementById('seller-products');
+
+if (!sellerId) {
+  card.innerHTML = UI.empty('缺少卖家编号');
+} else {
+  load();
+}
+
+async function load() {
+  let seller;
+  try {
+    seller = await API.get('/api/user/' + sellerId);
+  } catch (e) {
+    card.innerHTML = UI.empty(e.message);
+    return;
+  }
+
+  const me = API.getUser();
+  const isSelf = me && me.id === seller.id;
+  const contact = [];
+  if (seller.contactPublic === 1) {
+    if (seller.wechat) contact.push('微信：' + UI.escapeHtml(seller.wechat));
+  }
+
+  card.innerHTML =
+    '<div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">' +
+      '<img class="avatar" style="width:86px;height:86px" src="' + UI.escapeHtml(seller.avatar || '/images/avatar/default.png') + '">' +
+      '<div style="flex:1;min-width:220px">' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<span style="font-size:22px;font-weight:700">' + UI.escapeHtml(seller.nickname || seller.name) + '</span>' +
+          (seller.identityStatus === 1 ? '<span class="chip chip-green">已认证在校师生</span>' : '') +
+        '</div>' +
+        '<div style="color:var(--text-3);font-size:13px;margin-top:6px">' +
+          (seller.department ? UI.escapeHtml(seller.department) + ' · ' : '') +
+          '加入于 ' + UI.timeText(seller.createTime) +
+        '</div>' +
+        '<div style="color:var(--text-2);font-size:14px;margin-top:10px;line-height:1.7">' +
+          UI.escapeHtml(seller.intro || '这位同学还没有填写简介。') +
+        '</div>' +
+        '<div style="display:flex;gap:26px;margin-top:16px">' +
+          '<div><div style="font-size:20px;font-weight:700;color:var(--primary)">' + (seller.onSaleCount || 0) + '</div><div class="section-sub">在售</div></div>' +
+          '<div><div style="font-size:20px;font-weight:700">' + (seller.soldCount || 0) + '</div><div class="section-sub">已售出</div></div>' +
+        '</div>' +
+        '<div style="margin-top:14px;color:var(--text-3);font-size:13px">' +
+          (contact.length ? contact.join(' · ') : '该用户选择仅通过商品留言沟通') +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px">' +
+        (isSelf ? '<a class="btn btn-ghost btn-sm" href="user.html#profile">编辑我的资料</a>' : '') +
+        '<a class="btn btn-ghost btn-sm" href="products.html?keyword=' + encodeURIComponent(seller.nickname || seller.name) + '">搜索 TA 的商品</a>' +
+      '</div>' +
+    '</div>';
+
+  document.title = (seller.nickname || seller.name) + ' · 校园二手集市';
+
+  try {
+    const products = await API.get('/api/user/' + sellerId + '/products');
+    document.getElementById('sale-count').textContent = '共 ' + products.length + ' 件';
+    list.innerHTML = products.length ? products.map(UI.productCard).join('') : UI.empty('TA 暂时没有在售的商品');
+  } catch (e) {
+    list.innerHTML = UI.empty(e.message);
+  }
+}
+</script>
+</body>
+</html>

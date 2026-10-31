@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 / 注册 · 校园二手集市</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1 id="auth-title">欢迎回到校园二手集市</h1>
+    <div class="sub">仅限本校师生使用，凭学号 / 工号注册</div>
+
+    <div class="tabs">
+      <button data-tab="login" class="on">登录</button>
+      <button data-tab="register">注册</button>
+      <button data-tab="reset">找回密码</button>
+    </div>
+
+    <!-- 登录 -->
+    <form id="form-login">
+      <div class="field">
+        <label>学号 / 工号</label>
+        <input class="input" id="login-account" placeholder="如 2021001 或 T2020001" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input class="input" id="login-password" type="password" placeholder="请输入密码" autocomplete="current-password">
+      </div>
+      <button class="btn btn-block" type="submit" id="btn-login">登 录</button>
+      <div class="hint" style="text-align:center;margin-top:14px">
+        演示账号：2021001 / 123456（其他账号见 README「演示账号」）
+      </div>
+    </form>
+
+    <!-- 注册 -->
+    <form id="form-register" style="display:none">
+      <div class="form-row">
+        <div class="field">
+          <label>学号 / 工号</label>
+          <input class="input" id="reg-account" placeholder="8-12 位学号，或 T+工号">
+        </div>
+        <div class="field">
+          <label>真实姓名</label>
+          <input class="input" id="reg-name" placeholder="用于身份核对">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>手机号</label>
+          <input class="input" id="reg-phone" placeholder="11 位手机号">
+        </div>
+        <div class="field">
+          <label>院系（选填）</label>
+          <input class="input" id="reg-department" placeholder="如 计算机学院">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>密码</label>
+          <input class="input" id="reg-password" type="password" placeholder="6-20 位">
+        </div>
+        <div class="field">
+          <label>确认密码</label>
+          <input class="input" id="reg-password2" type="password" placeholder="再次输入密码">
+        </div>
+      </div>
+      <div class="field">
+        <label>短信验证码</label>
+        <div style="display:flex;gap:10px">
+          <input class="input" id="reg-code" placeholder="6 位验证码">
+          <button class="btn btn-ghost" type="button" id="btn-send-code-register" style="white-space:nowrap">获取验证码</button>
+        </div>
+        <div class="hint" id="reg-code-hint"></div>
+      </div>
+      <button class="btn btn-block" type="submit">注册并登录</button>
+    </form>
+
+    <!-- 找回密码 -->
+    <form id="form-reset" style="display:none">
+      <div class="field">
+        <label>注册手机号</label>
+        <input class="input" id="reset-phone" placeholder="11 位手机号">
+      </div>
+      <div class="field">
+        <label>短信验证码</label>
+        <div style="display:flex;gap:10px">
+          <input class="input" id="reset-code" placeholder="6 位验证码">
+          <button class="btn btn-ghost" type="button" id="btn-send-code-reset" style="white-space:nowrap">获取验证码</button>
+        </div>
+        <div class="hint" id="reset-code-hint"></div>
+      </div>
+      <div class="field">
+        <label>新密码</label>
+        <input class="input" id="reset-password" type="password" placeholder="6-20 位新密码">
+      </div>
+      <button class="btn btn-block" type="submit">重置密码</button>
+    </form>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+const next = UI.query('next') || 'index.html';
+
+function switchTab(tab) {
+  document.querySelectorAll('.tabs button').forEach(function (btn) {
+    btn.classList.toggle('on', btn.dataset.tab === tab);
+  });
+  document.getElementById('form-login').style.display = tab === 'login' ? '' : 'none';
+  document.getElementById('form-register').style.display = tab === 'register' ? '' : 'none';
+  document.getElementById('form-reset').style.display = tab === 'reset' ? '' : 'none';
+  const titles = {
+    login: ['欢迎回到校园二手集市', '仅限本校师生使用，凭学号 / 工号注册'],
+    register: ['加入校园二手集市', '注册需要校园身份与手机验证码'],
+    reset: ['重置登录密码', '通过注册手机号验证码重置']
+  };
+  document.getElementById('auth-title').textContent = titles[tab][0];
+  document.querySelector('.auth-card .sub').textContent = titles[tab][1];
+}
+
+document.querySelectorAll('.tabs button').forEach(function (btn) {
+  btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
+});
+
+if (UI.query('tab') === 'register') switchTab('register');
+
+async function sendCode(phoneInput, hintId, button) {
+  const phone = document.getElementById(phoneInput).value.trim();
+  if (!/^1[3-9]\d{9}$/.test(phone)) { UI.toast('请输入正确的手机号', true); return; }
+  button.disabled = true;
+  const originText = button.textContent;
+  button.textContent = '发送中…';
+  try {
+    const data = await API.post('/api/auth/sms-code', { phone: phone });
+    const hint = document.getElementById(hintId);
+    if (data.mock) {
+      hint.innerHTML = '演示模式验证码：<b style="color:var(--primary-dark);font-size:15px">' + data.code + '</b>（5 分钟内有效）';
+      document.getElementById(hintId.replace('hint', 'code')).value = data.code;
+    } else {
+      hint.textContent = '验证码已发送，5 分钟内有效';
+    }
+    UI.toast('验证码已发送');
+    let seconds = 60;
+    const timer = setInterval(function () {
+      seconds -= 1;
+      button.textContent = seconds + 's 后重发';
+      if (seconds <= 0) {
+        clearInterval(timer);
+        button.disabled = false;
+        button.textContent = originText;
+      }
+    }, 1000);
+  } catch (e) {
+    button.disabled = false;
+    button.textContent = originText;
+    UI.toast(e.message, true);
+  }
+}
+
+document.getElementById('btn-send-code-register').addEventListener('click', function () {
+  sendCode('reg-phone', 'reg-code-hint', this);
+});
+document.getElementById('btn-send-code-reset').addEventListener('click', function () {
+  sendCode('reset-phone', 'reset-code-hint', this);
+});
+
+document.getElementById('form-login').addEventListener('submit', async function (event) {
+  event.preventDefault();
+  const account = document.getElementById('login-account').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!account || !password) { UI.toast('请填写账号和密码', true); return; }
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true;
+  try {
+    const data = await API.post('/api/auth/login', { account: account, password: password });
+    API.setAuth(data);
+    UI.toast('登录成功');
+    setTimeout(function () {
+      location.href = (data.user && data.user.role === 'ADMIN') ? 'admin.html' : next;
+    }, 400);
+  } catch (e) {
+    UI.toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('form-register').addEventListener('submit', async function (event) {
+  event.preventDefault();
+  const payload = {
+    account: document.getElementById('reg-account').value.trim(),
+    name: document.getElementById('reg-name').value.trim(),
+    phone: document.getElementById('reg-phone').value.trim(),
+    department: document.getElementById('reg-department').value.trim(),
+    password: document.getElementById('reg-password').value,
+    password2: document.getElementById('reg-password2').value,
+    code: document.getElementById('reg-code').value.trim()
+  };
+  if (!payload.account || !payload.name || !payload.phone || !payload.code) {
+    UI.toast('请完整填写注册信息', true); return;
+  }
+  if (payload.password !== payload.password2) { UI.toast('两次输入的密码不一致', true); return; }
+  if (payload.password.length < 6) { UI.toast('密码至少 6 位', true); return; }
+  try {
+    const data = await API.post('/api/auth/register', payload);
+    API.setAuth(data);
+    UI.toast('注册成功，已自动登录');
+    setTimeout(function () { location.href = next; }, 500);
+  } catch (e) {
+    UI.toast(e.message, true);
+  }
+});
+
+document.getElementById('form-reset').addEventListener('submit', async function (event) {
+  event.preventDefault();
+  const payload = {
+    phone: document.getElementById('reset-phone').value.trim(),
+    code: document.getElementById('reset-code').value.trim(),
+    password: document.getElementById('reset-password').value
+  };
+  if (!payload.phone || !payload.code || !payload.password) { UI.toast('请完整填写', true); return; }
+  try {
+    await API.post('/api/auth/reset-password', payload);
+    UI.toast('密码已重置，请重新登录');
+    switchTab('login');
+  } catch (e) { UI.toast(e.message, true); }
+});
+</script>
+</body>
+</html>

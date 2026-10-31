@@ -1,0 +1,36 @@
+# ---- 构建产物 ----
+/target/
+*.jar
+*.war
+*.class
+
+# ---- 运行时数据（用户上传的图片不入库） ----
+/uploads/
+
+# ---- 日志与临时文件 ----
+*.log
+logs/
+*.tmp
+*.bak
+*.orig
+*~
+
+# ---- IDE / 编辑器 ----
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.settings/
+*.swp
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 本地环境覆盖（放真实口令，不要提交） ----
+application-local.yml
+application-local.properties
+.env
+.env.*

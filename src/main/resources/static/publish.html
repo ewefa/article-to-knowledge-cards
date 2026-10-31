@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>发布闲置 · 校园二手集市</title>
+<link rel="icon" href="/images/favicon.png">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app-header"></div>
+
+<main class="container" style="padding-top:22px;max-width:900px">
+  <div class="panel">
+    <h1 id="page-title" style="margin:0 0 4px;font-size:20px">发布二手闲置</h1>
+    <div class="hint" style="margin-bottom:18px">信息越真实越容易成交，建议写清品牌、型号、成色与瑕疵</div>
+
+    <form id="form-product">
+      <div class="field">
+        <label>商品标题 <span style="color:var(--danger)">*</span></label>
+        <input class="input" id="title" maxlength="60" placeholder="如：九成新 高数教材（第七版）">
+      </div>
+
+      <div class="form-row">
+        <div class="field">
+          <label>分类 <span style="color:var(--danger)">*</span></label>
+          <select class="input" id="categoryId"></select>
+        </div>
+        <div class="field">
+          <label>交易地点</label>
+          <select class="input" id="tradePlace">
+            <option>食堂门口</option><option>图书馆门口</option><option>宿舍区</option>
+            <option>教学楼</option><option>体育馆</option><option>校门口</option><option>其他（详见描述）</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="field">
+          <label>售价（元） <span style="color:var(--danger)">*</span></label>
+          <input class="input" id="price" type="number" min="0.01" step="0.01" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label>原价（元，选填）</label>
+          <input class="input" id="originalPrice" type="number" min="0" step="0.01" placeholder="0.00">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>是否可议价</label>
+        <label style="display:inline-flex;align-items:center;gap:8px;font-weight:400;color:var(--text)">
+          <input type="checkbox" id="negotiable" style="width:16px;height:16px"> 接受买家小刀（可议价）
+        </label>
+      </div>
+
+      <div class="field">
+        <label>商品图片（最多 5 张，单张不超过 5MB）</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap" id="image-list"></div>
+        <label class="btn btn-ghost btn-sm" style="margin-top:10px;width:fit-content">
+          + 上传图片
+          <input type="file" id="file-input" accept="image/*" multiple style="display:none">
+        </label>
+      </div>
+
+      <div class="field">
+        <label>详细描述 <span style="color:var(--danger)">*</span></label>
+        <textarea class="input" id="description" maxlength="1000" placeholder="购买时间、使用情况、配件是否齐全、瑕疵说明等（最多 1000 字）"></textarea>
+      </div>
+
+      <div style="display:flex;gap:12px;justify-content:flex-end">
+        <a class="btn btn-ghost" href="user.html#products">取消</a>
+        <button class="btn" type="submit" id="btn-submit">发布商品</button>
+      </div>
+    </form>
+  </div>
+  <div class="footer">发布后可在「个人中心 - 我的商品」中管理</div>
+</main>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+UI.renderHeader();
+
+const editId = UI.query('id') ? Number(UI.query('id')) : null;
+let images = [];
+
+function renderImages() {
+  document.getElementById('image-list').innerHTML = images.map(function (src, i) {
+    return '<div style="position:relative">' +
+      '<img src="' + UI.escapeHtml(src) + '" style="width:96px;height:96px;object-fit:cover;border-radius:10px">' +
+      '<button type="button" data-del="' + i + '" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:none;background:rgba(0,0,0,.65);color:#fff;font-size:12px">×</button>' +
+    '</div>';
+  }).join('');
+  document.querySelectorAll('#image-list [data-del]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      images.splice(Number(btn.dataset.del), 1);
+      renderImages();
+    });
+  });
+}
+
+document.getElementById('file-input').addEventListener('change', async function (event) {
+  const files = Array.from(event.target.files || []);
+  event.target.value = '';
+  for (const file of files) {
+    if (images.length >= 5) { UI.toast('最多上传 5 张图片', true); break; }
+    if (file.size > 5 * 1024 * 1024) { UI.toast('图片不能超过 5MB', true); continue; }
+    try {
+      const data = await API.upload(file);
+      images.push(data.url);
+      renderImages();
+    } catch (e) {
+      UI.toast(e.message, true);
+    }
+  }
+});
+
+async function loadCategories() {
+  const categories = await API.get('/api/home/categories');
+  document.getElementById('categoryId').innerHTML = categories.map(function (c) {
+    return '<option value="' + c.id + '">' + UI.escapeHtml(c.name) + '</option>';
+  }).join('');
+  return categories;
+}
+
+async function loadForEdit() {
+  const product = await API.get('/api/products/' + editId);
+  if (!product.owner) {
+    UI.toast('只能编辑自己发布的商品', true);
+    setTimeout(function () { location.href = 'index.html'; }, 800);
+    return;
+  }
+  document.getElementById('page-title').textContent = '编辑商品';
+  document.getElementById('btn-submit').textContent = '保存修改';
+  document.getElementById('title').value = product.title || '';
+  document.getElementById('categoryId').value = product.categoryId;
+  document.getElementById('price').value = product.price;
+  document.getElementById('originalPrice').value = product.originalPrice || '';
+  document.getElementById('negotiable').checked = product.negotiable === 1;
+  document.getElementById('tradePlace').value = product.tradePlace || '食堂门口';
+  document.getElementById('description').value = product.description || '';
+  images = (product.images || []).slice(0, 5);
+  renderImages();
+}
+
+document.getElementById('form-product').addEventListener('submit', async function (event) {
+  event.preventDefault();
+  if (!UI.requireLogin()) return;
+  const payload = {
+    title: document.getElementById('title').value.trim(),
+    categoryId: Number(document.getElementById('categoryId').value),
+    price: Number(document.getElementById('price').value),
+    originalPrice: document.getElementById('originalPrice').value ? Number(document.getElementById('originalPrice').value) : null,
+    negotiable: document.getElementById('negotiable').checked ? 1 : 0,
+    tradePlace: document.getElementById('tradePlace').value,
+    description: document.getElementById('description').value.trim(),
+    images: images
+  };
+  if (!payload.title) { UI.toast('请填写商品标题', true); return; }
+  if (!payload.categoryId) { UI.toast('请选择分类', true); return; }
+  if (!payload.price || payload.price <= 0) { UI.toast('请填写正确的售价', true); return; }
+  if (!payload.description) { UI.toast('请填写商品描述', true); return; }
+
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true;
+  try {
+    if (editId) {
+      await API.put('/api/products/' + editId, payload);
+      UI.toast('修改已保存');
+      setTimeout(function () { location.href = 'product.html?id=' + editId; }, 600);
+    } else {
+      const id = await API.post('/api/products', payload);
+      UI.toast('发布成功');
+      setTimeout(function () { location.href = 'product.html?id=' + id; }, 600);
+    }
+  } catch (e) {
+    UI.toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+if (!UI.requireLogin()) {
+  // requireLogin 已跳转
+} else {
+  loadCategories().then(function () {
+    if (editId) loadForEdit().catch(function (e) { UI.toast(e.message, true); });
+  });
+}
+</script>
+</body>
+</html>
